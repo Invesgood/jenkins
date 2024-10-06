@@ -215,14 +215,14 @@ nav ul li a:hover {
 }
 .footer {
   display: flex;
-  justify-content: space-between;
+  justify-content: space-around;
+  gap: 20px;
   flex-wrap: nowrap;
   align-items: center;
 }
 
 .footer-section {
-  width: 45%;
-  margin-bottom: 20px;
+  margin-bottom: 10px;
 }
 
 .footer-section h3 {

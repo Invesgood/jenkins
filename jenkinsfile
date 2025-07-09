@@ -2,51 +2,48 @@ pipeline {
     agent any
 
     environment {
-        REMOTE_USER = "deray"
-        REMOTE_HOST = "192.168.10.200"
-        REMOTE_PATH = "/var/www/html"  // Ubah ke direktori web di VPS kamu
+        DEPLOY_PATH = "/var/www/html"
     }
 
     stages {
-        stage('Clone Repo') {
+        stage('Checkout') {
             steps {
-                echo '📥 Cloning repository...'
-                git url: 'git@github.com:invesgood/jenkins.git', branch: "main", credentialsId: 'github-invesgood'
+                echo '📥 Checkout source code...'
+                checkout scm
             }
         }
 
         stage('Build (optional)') {
             steps {
-                echo '🔧 Build step - lewati jika HTML murni'
-                // Misal kamu pakai bundler atau preprocessor
-                sh 'echo "No build required for plain HTML/CSS/JS"'
+                echo '⚙️ Build step (skip if not needed)...'
+                // Misalnya: npm run build, atau bisa dikosongkan
+                // sh 'npm install && npm run build'
             }
         }
 
-        stage('Deploy to VPS') {
+        stage('Deploy') {
             steps {
-                echo '🚀 Deploying to VPS...'
+                echo "🚀 Deploying to local server folder: ${DEPLOY_PATH}"
                 sh """
-                     ssh-keyscan ${REMOTE_HOST} >> ~/.ssh/known_hosts
-                    rsync -avz --delete ./ ${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_PATH}
+                    rsync -avz --delete ./ ${DEPLOY_PATH}/
                 """
             }
         }
 
-        stage('Post-Deploy Check') {
+        stage('Post-deploy check') {
             steps {
-                echo '✅ Checking remote server content...'
-                sh "ssh ${REMOTE_USER}@${REMOTE_HOST} 'ls -lah ${REMOTE_PATH}'"
+                echo '✅ Deployment complete!'
+                sh "ls -l ${DEPLOY_PATH}"
             }
         }
     }
 
     post {
         success {
-            echo '✅ Deployment completed successfully!'
+            echo '🎉 Pipeline success!'
         }
         failure {
-            echo '❌ Deployment failed. Please check logs.'
+            echo '❌ Pipeline failed. Check logs.'
         }
     }
 }

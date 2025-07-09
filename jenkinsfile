@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     environment {
-        REMOTE_USER = "root"
+        REMOTE_USER = "deray"
         REMOTE_HOST = "192.168.10.200"
         REMOTE_PATH = "/var/www/html"  // Ubah ke direktori web di VPS kamu
     }

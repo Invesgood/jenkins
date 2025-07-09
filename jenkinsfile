@@ -1,10 +1,51 @@
-pipeline{
+pipeline {
     agent any
-    stages{
-        stage("Hello"){
-            steps{
-                echo("hai")
+
+    environment {
+        REMOTE_USER = "your_vps_username"
+        REMOTE_HOST = "your.vps.ip.or.domain"
+        REMOTE_PATH = "/var/www/html"  // Ubah ke direktori web di VPS kamu
+    }
+
+    stages {
+        stage('Clone Repo') {
+            steps {
+                echo '📥 Cloning repository...'
+                git url: 'git@github.com:invesgood/jenkins.git', credentialsId: 'github-invesgood'
             }
+        }
+
+        stage('Build (optional)') {
+            steps {
+                echo '🔧 Build step - lewati jika HTML murni'
+                // Misal kamu pakai bundler atau preprocessor
+                sh 'echo "No build required for plain HTML/CSS/JS"'
+            }
+        }
+
+        stage('Deploy to VPS') {
+            steps {
+                echo '🚀 Deploying to VPS...'
+                sh """
+                    rsync -avz --delete ./ ${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_PATH}
+                """
+            }
+        }
+
+        stage('Post-Deploy Check') {
+            steps {
+                echo '✅ Checking remote server content...'
+                sh "ssh ${REMOTE_USER}@${REMOTE_HOST} 'ls -lah ${REMOTE_PATH}'"
+            }
+        }
+    }
+
+    post {
+        success {
+            echo '✅ Deployment completed successfully!'
+        }
+        failure {
+            echo '❌ Deployment failed. Please check logs.'
         }
     }
 }

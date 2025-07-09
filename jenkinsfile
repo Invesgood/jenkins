@@ -25,7 +25,7 @@ pipeline {
             steps {
                 echo "🚀 Deploying to local server folder: ${DEPLOY_PATH}"
                 sh """
-                    rsync -avz --delete ./ ${DEPLOY_PATH}/
+                    rsync -avz --delete ./ ${DELOY_PATH}/
                 """
             }
         }

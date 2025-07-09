@@ -11,7 +11,7 @@ pipeline {
         stage('Clone Repo') {
             steps {
                 echo '📥 Cloning repository...'
-                git url: 'git@github.com:invesgood/jenkins.git', credentialsId: 'github-invesgood'
+                git url: 'git@github.com:invesgood/jenkins.git', branch: "main", credentialsId: 'github-invesgood'
             }
         }
 

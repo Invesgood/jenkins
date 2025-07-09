@@ -27,6 +27,7 @@ pipeline {
             steps {
                 echo '🚀 Deploying to VPS...'
                 sh """
+                     ssh-keyscan ${REMOTE_HOST} >> ~/.ssh/known_hosts
                     rsync -avz --delete ./ ${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_PATH}
                 """
             }

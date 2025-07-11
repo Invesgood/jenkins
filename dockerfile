@@ -7,4 +7,5 @@ RUN rm -rf /usr/share/nginx/html/*
 # Copy file HTML, CSS, JS, image kamu ke folder Nginx
 COPY . /usr/share/nginx/html
 
-# Container akan expose port 80
+# Container akan expose port 7000
+EXPOSE 7000

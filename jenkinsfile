@@ -1,26 +1,13 @@
 pipeline {
     agent any
     
-    // Environment variables
     environment {
-        // VPS Configuration
-        VPS_HOST = '192.168.10.200'        // Ganti dengan IP VPS Anda
-        VPS_USER = 'deray'                 // Ganti dengan user VPS Anda
-        VPS_PORT = '22'                   // Port SSH VPS
+        // VPS Configuration - GANTI SESUAI SETUP ANDA
+        VPS_HOST = '192.168.1.100'        // IP VPS Anda
+        VPS_USER = 'root'                 // User VPS Anda
+        VPS_PORT = '22'                   // Port SSH
         DEPLOY_PATH = '/var/www/html'     // Path deploy di VPS
-        
-        // Project Configuration
-        PROJECT_NAME = 'my-web-app'
-        BUILD_PATH = './dist'             // Path hasil build
-        
-        // Credentials ID (akan dibuat di Jenkins)
-        SSH_CREDENTIALS = 'vps-ssh-key'
-    }
-    
-    // Build triggers
-    triggers {
-        // Poll SCM every 5 minutes for changes
-        pollSCM('H/5 * * * *')
+        SSH_CREDENTIALS = 'vps-ssh-key'   // ID credential SSH di Jenkins
     }
     
     stages {
@@ -28,43 +15,6 @@ pipeline {
             steps {
                 echo '🔄 Checking out source code...'
                 checkout scm
-                
-                // Display build information
-                script {
-                    echo "Build Number: ${env.BUILD_NUMBER}"
-                    echo "Build ID: ${env.BUILD_ID}"
-                    echo "Job Name: ${env.JOB_NAME}"
-                    echo "Workspace: ${env.WORKSPACE}"
-                }
-            }
-        }
-        
-        stage('Install Dependencies') {
-            steps {
-                echo '📦 Installing dependencies...'
-                script {
-                    // Untuk Node.js project
-                    if (fileExists('package.json')) {
-                        sh '''
-                            npm install
-                            npm audit fix --force || true
-                        '''
-                    }
-                    
-                    // Untuk PHP Composer
-                    if (fileExists('composer.json')) {
-                        sh '''
-                            composer install --no-dev --optimize-autoloader
-                        '''
-                    }
-                    
-                    // Untuk Python
-                    if (fileExists('requirements.txt')) {
-                        sh '''
-                            pip install -r requirements.txt
-                        '''
-                    }
-                }
             }
         }
         
@@ -72,87 +22,44 @@ pipeline {
             steps {
                 echo '🔨 Building application...'
                 script {
-                    // Build untuk Node.js
+                    // Build untuk Node.js project
                     if (fileExists('package.json')) {
                         sh '''
-                            npm run build
+                            echo "Installing dependencies..."
+                            npm install
+                            
+                            echo "Building project..."
+                            npm run build || echo "No build script found"
                         '''
                     }
                     
-                    // Build untuk PHP (jika ada build script)
-                    if (fileExists('build.sh')) {
-                        sh '''
-                            chmod +x build.sh
-                            ./build.sh
-                        '''
-                    }
-                    
-                    // Verifikasi build hasil
+                    // Prepare files untuk deploy
                     sh '''
-                        if [ -d "${BUILD_PATH}" ]; then
-                            echo "✅ Build directory exists"
-                            ls -la ${BUILD_PATH}
-                        else
-                            echo "❌ Build directory not found"
-                            echo "Available directories:"
-                            ls -la
-                        fi
-                    '''
-                }
-            }
-        }
-        
-        stage('Test') {
-            steps {
-                echo '🧪 Running tests...'
-                script {
-                    // Node.js tests
-                    if (fileExists('package.json')) {
-                        sh '''
-                            npm test || echo "No tests found"
-                        '''
-                    }
-                    
-                    // PHP tests
-                    if (fileExists('phpunit.xml')) {
-                        sh '''
-                            ./vendor/bin/phpunit || echo "PHPUnit tests failed"
-                        '''
-                    }
-                }
-            }
-        }
-        
-        stage('Prepare Deploy') {
-            steps {
-                echo '📋 Preparing deployment...'
-                script {
-                    // Create deployment package
-                    sh '''
-                        # Create temp directory for deployment
-                        mkdir -p deploy-temp
+                        echo "Preparing files for deployment..."
+                        mkdir -p deploy
                         
-                        # Copy build files
-                        if [ -d "${BUILD_PATH}" ]; then
-                            cp -r ${BUILD_PATH}/* deploy-temp/
+                        # Copy build files jika ada
+                        if [ -d "dist" ]; then
+                            echo "Copying dist/ files..."
+                            cp -r dist/* deploy/
+                        elif [ -d "build" ]; then
+                            echo "Copying build/ files..."
+                            cp -r build/* deploy/
                         else
-                            echo "No build directory found, copying all files..."
-                            cp -r * deploy-temp/ || true
-                            # Remove unnecessary files
-                            rm -rf deploy-temp/.git
-                            rm -rf deploy-temp/node_modules
-                            rm -rf deploy-temp/deploy-temp
+                            echo "Copying source files..."
+                            # Copy HTML, CSS, JS files
+                            find . -name "*.html" -o -name "*.css" -o -name "*.js" | grep -v node_modules | xargs -I {} cp {} deploy/ 2>/dev/null || true
+                            # Copy assets jika ada
+                            if [ -d "assets" ]; then
+                                cp -r assets deploy/
+                            fi
+                            if [ -d "images" ]; then
+                                cp -r images deploy/
+                            fi
                         fi
                         
-                        # Create deployment info
-                        echo "Deployment Info:" > deploy-temp/deployment-info.txt
-                        echo "Build Number: ${BUILD_NUMBER}" >> deploy-temp/deployment-info.txt
-                        echo "Build Date: $(date)" >> deploy-temp/deployment-info.txt
-                        echo "Git Commit: $(git rev-parse HEAD)" >> deploy-temp/deployment-info.txt
-                        
-                        # List files to be deployed
-                        echo "Files to be deployed:"
-                        ls -la deploy-temp/
+                        echo "Files prepared for deployment:"
+                        ls -la deploy/
                     '''
                 }
             }
@@ -161,45 +68,48 @@ pipeline {
         stage('Deploy to VPS') {
             steps {
                 echo '🚀 Deploying to VPS...'
-                script {
-                    // Using SSH Agent plugin
-                    sshagent(credentials: [invesgood]) {
-                        sh '''
-                            # Test SSH connection
-                            ssh -o StrictHostKeyChecking=no -p ${VPS_PORT} ${VPS_USER}@${VPS_HOST} "echo 'SSH connection successful'"
+                sshagent(credentials: [invesgood]) {
+                    sh '''
+                        echo "Testing SSH connection..."
+                        ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -p ${VPS_PORT} ${VPS_USER}@${VPS_HOST} "echo 'SSH connection successful'"
+                        
+                        echo "Creating backup..."
+                        ssh -o StrictHostKeyChecking=no -p ${VPS_PORT} ${VPS_USER}@${VPS_HOST} "
+                            if [ -d '${DEPLOY_PATH}' ] && [ -n '$(ls -A ${DEPLOY_PATH} 2>/dev/null)' ]; then
+                                BACKUP_DIR='${DEPLOY_PATH}.backup.$(date +%Y%m%d_%H%M%S)'
+                                echo 'Creating backup at: '$BACKUP_DIR
+                                cp -r ${DEPLOY_PATH} $BACKUP_DIR
+                            fi
+                        "
+                        
+                        echo "Deploying files..."
+                        ssh -o StrictHostKeyChecking=no -p ${VPS_PORT} ${VPS_USER}@${VPS_HOST} "
+                            # Create deploy directory if not exists
+                            mkdir -p ${DEPLOY_PATH}
                             
-                            # Create backup of current deployment
-                            ssh -o StrictHostKeyChecking=no -p ${VPS_PORT} ${VPS_USER}@${VPS_HOST} "
-                                if [ -d '${DEPLOY_PATH}' ]; then
-                                    echo '📦 Creating backup...'
-                                    cp -r ${DEPLOY_PATH} ${DEPLOY_PATH}.backup.$(date +%Y%m%d_%H%M%S)
-                                    
-                                    # Keep only last 3 backups
-                                    cd $(dirname ${DEPLOY_PATH})
-                                    ls -t ${PROJECT_NAME}.backup.* 2>/dev/null | tail -n +4 | xargs rm -rf
-                                fi
-                            "
+                            # Clear existing files
+                            rm -rf ${DEPLOY_PATH}/*
+                        "
+                        
+                        # Upload files
+                        echo "Uploading files..."
+                        scp -o StrictHostKeyChecking=no -P ${VPS_PORT} -r deploy/* ${VPS_USER}@${VPS_HOST}:${DEPLOY_PATH}/
+                        
+                        echo "Setting permissions..."
+                        ssh -o StrictHostKeyChecking=no -p ${VPS_PORT} ${VPS_USER}@${VPS_HOST} "
+                            # Set proper permissions
+                            chown -R www-data:www-data ${DEPLOY_PATH} 2>/dev/null || chown -R nginx:nginx ${DEPLOY_PATH} 2>/dev/null || true
+                            chmod -R 755 ${DEPLOY_PATH}
                             
-                            # Upload files to VPS
-                            echo '📤 Uploading files...'
-                            scp -o StrictHostKeyChecking=no -P ${VPS_PORT} -r deploy-temp/* ${VPS_USER}@${VPS_HOST}:${DEPLOY_PATH}/
+                            # Restart web server
+                            systemctl restart nginx 2>/dev/null && echo 'Nginx restarted' || echo 'Nginx not found'
+                            systemctl restart apache2 2>/dev/null && echo 'Apache restarted' || echo 'Apache not found'
                             
-                            # Set proper permissions and restart services
-                            ssh -o StrictHostKeyChecking=no -p ${VPS_PORT} ${VPS_USER}@${VPS_HOST} "
-                                echo '🔧 Setting permissions...'
-                                chown -R www-data:www-data ${DEPLOY_PATH}
-                                chmod -R 755 ${DEPLOY_PATH}
-                                
-                                echo '🔄 Restarting services...'
-                                systemctl restart nginx || echo 'Nginx restart failed'
-                                systemctl restart apache2 || echo 'Apache restart failed'
-                                systemctl restart php7.4-fpm || echo 'PHP-FPM restart failed'
-                                
-                                echo '✅ Deployment completed successfully!'
-                                echo 'Deployment time: $(date)'
-                            "
-                        '''
-                    }
+                            echo 'Deployment completed!'
+                            echo 'Files in deploy directory:'
+                            ls -la ${DEPLOY_PATH}
+                        "
+                    '''
                 }
             }
         }
@@ -208,21 +118,19 @@ pipeline {
             steps {
                 echo '🏥 Running health check...'
                 script {
-                    // Wait a bit for services to start
-                    sleep(time: 10, unit: 'SECONDS')
+                    sleep(time: 5, unit: 'SECONDS')
                     
-                    // Check if website is accessible
                     sh '''
-                        # Try to access the website
-                        if curl -f -s http://${VPS_HOST} > /dev/null; then
+                        echo "Checking website accessibility..."
+                        if curl -f -s -m 10 http://${VPS_HOST} > /dev/null; then
                             echo "✅ Website is accessible"
                         else
-                            echo "❌ Website is not accessible"
-                            # Check VPS services
+                            echo "⚠️ Website accessibility check failed"
+                            echo "Checking VPS services..."
                             ssh -o StrictHostKeyChecking=no -p ${VPS_PORT} ${VPS_USER}@${VPS_HOST} "
-                                echo 'Checking services status:'
-                                systemctl status nginx --no-pager || true
-                                systemctl status apache2 --no-pager || true
+                                echo 'Service Status:'
+                                systemctl status nginx --no-pager -l || echo 'Nginx not running'
+                                systemctl status apache2 --no-pager -l || echo 'Apache not running'
                             "
                         fi
                     '''
@@ -234,25 +142,17 @@ pipeline {
     post {
         always {
             echo '🧹 Cleaning up...'
-            // Clean up deployment temp directory
-            sh 'rm -rf deploy-temp'
-            
-            // Archive deployment info
-            archiveArtifacts artifacts: '**/deployment-info.txt', fingerprint: true, allowEmptyArchive: true
+            sh 'rm -rf deploy || true'
         }
         
         success {
             echo '''
-            ✅ DEPLOYMENT SUCCESSFUL! 
+            ✅ DEPLOYMENT SUCCESSFUL!
             
-            🎉 Your application has been successfully deployed to VPS!
+            🎉 Your application has been deployed to VPS!
             🌐 Website: http://${VPS_HOST}
-            📊 Build Number: ${BUILD_NUMBER}
-            ⏰ Deployment Time: $(date)
+            📊 Build: ${BUILD_NUMBER}
             '''
-            
-            // Send notification (optional)
-            // slackSend(channel: '#deployments', message: "✅ ${env.JOB_NAME} - Build ${env.BUILD_NUMBER} deployed successfully!")
         }
         
         failure {
@@ -261,13 +161,6 @@ pipeline {
             
             Please check the logs above for error details.
             '''
-            
-            // Send notification (optional)
-            // slackSend(channel: '#deployments', message: "❌ ${env.JOB_NAME} - Build ${env.BUILD_NUMBER} deployment failed!")
-        }
-        
-        unstable {
-            echo '⚠️ Build completed with warnings'
         }
     }
 }

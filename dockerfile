@@ -8,4 +8,4 @@ RUN rm -rf /usr/share/nginx/html/*
 COPY . /usr/share/nginx/html
 
 # Container akan expose port 7000
-EXPOSE 7000
+EXPOSE 80

@@ -4,8 +4,8 @@ pipeline {
     // Environment variables
     environment {
         // VPS Configuration
-        VPS_HOST = '192.168.1.100'        // Ganti dengan IP VPS Anda
-        VPS_USER = 'root'                 // Ganti dengan user VPS Anda
+        VPS_HOST = '192.168.10.200'        // Ganti dengan IP VPS Anda
+        VPS_USER = 'deray'                 // Ganti dengan user VPS Anda
         VPS_PORT = '22'                   // Port SSH VPS
         DEPLOY_PATH = '/var/www/html'     // Path deploy di VPS
         

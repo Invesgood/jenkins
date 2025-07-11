@@ -1,166 +1,55 @@
 pipeline {
     agent any
-    
+
     environment {
-        // VPS Configuration - GANTI SESUAI SETUP ANDA
-        VPS_HOST = '192.168.1.100'        // IP VPS Anda
-        VPS_USER = 'root'                 // User VPS Anda
-        VPS_PORT = '22'                   // Port SSH
-        DEPLOY_PATH = '/var/www/html'     // Path deploy di VPS
-        SSH_CREDENTIALS = 'vps-ssh-key'   // ID credential SSH di Jenkins
+        DOCKER_IMAGE = "my-app-image"
+        DOCKER_CONTAINER = "my-app-container"
     }
-    
+
     stages {
         stage('Checkout') {
             steps {
-                echo '🔄 Checking out source code...'
+                echo "🔄 Checking out source code..."
                 checkout scm
             }
         }
-        
-        stage('Build') {
+
+        stage('Build App') {
             steps {
-                echo '🔨 Building application...'
-                script {
-                    // Build untuk Node.js project
-                    if (fileExists('package.json')) {
-                        sh '''
-                            echo "Installing dependencies..."
-                            npm install
-                            
-                            echo "Building project..."
-                            npm run build || echo "No build script found"
-                        '''
-                    }
-                    
-                    // Prepare files untuk deploy
-                    sh '''
-                        echo "Preparing files for deployment..."
-                        mkdir -p deploy
-                        
-                        # Copy build files jika ada
-                        if [ -d "dist" ]; then
-                            echo "Copying dist/ files..."
-                            cp -r dist/* deploy/
-                        elif [ -d "build" ]; then
-                            echo "Copying build/ files..."
-                            cp -r build/* deploy/
-                        else
-                            echo "Copying source files..."
-                            # Copy HTML, CSS, JS files
-                            find . -name "*.html" -o -name "*.css" -o -name "*.js" | grep -v node_modules | xargs -I {} cp {} deploy/ 2>/dev/null || true
-                            # Copy assets jika ada
-                            if [ -d "assets" ]; then
-                                cp -r assets deploy/
-                            fi
-                            if [ -d "images" ]; then
-                                cp -r images deploy/
-                            fi
-                        fi
-                        
-                        echo "Files prepared for deployment:"
-                        ls -la deploy/
-                    '''
-                }
+                echo "🔨 Building application..."
+                sh 'npm install'
+                sh 'npm run build'
             }
         }
-        
-        stage('Deploy to VPS') {
+
+        stage('Build Docker Image') {
             steps {
-                echo '🚀 Deploying to VPS...'
-                sshagent(credentials: [invesgood]) {
-                    sh '''
-                        echo "Testing SSH connection..."
-                        ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -p ${VPS_PORT} ${VPS_USER}@${VPS_HOST} "echo 'SSH connection successful'"
-                        
-                        echo "Creating backup..."
-                        ssh -o StrictHostKeyChecking=no -p ${VPS_PORT} ${VPS_USER}@${VPS_HOST} "
-                            if [ -d '${DEPLOY_PATH}' ] && [ -n '$(ls -A ${DEPLOY_PATH} 2>/dev/null)' ]; then
-                                BACKUP_DIR='${DEPLOY_PATH}.backup.$(date +%Y%m%d_%H%M%S)'
-                                echo 'Creating backup at: '$BACKUP_DIR
-                                cp -r ${DEPLOY_PATH} $BACKUP_DIR
-                            fi
-                        "
-                        
-                        echo "Deploying files..."
-                        ssh -o StrictHostKeyChecking=no -p ${VPS_PORT} ${VPS_USER}@${VPS_HOST} "
-                            # Create deploy directory if not exists
-                            mkdir -p ${DEPLOY_PATH}
-                            
-                            # Clear existing files
-                            rm -rf ${DEPLOY_PATH}/*
-                        "
-                        
-                        # Upload files
-                        echo "Uploading files..."
-                        scp -o StrictHostKeyChecking=no -P ${VPS_PORT} -r deploy/* ${VPS_USER}@${VPS_HOST}:${DEPLOY_PATH}/
-                        
-                        echo "Setting permissions..."
-                        ssh -o StrictHostKeyChecking=no -p ${VPS_PORT} ${VPS_USER}@${VPS_HOST} "
-                            # Set proper permissions
-                            chown -R www-data:www-data ${DEPLOY_PATH} 2>/dev/null || chown -R nginx:nginx ${DEPLOY_PATH} 2>/dev/null || true
-                            chmod -R 755 ${DEPLOY_PATH}
-                            
-                            # Restart web server
-                            systemctl restart nginx 2>/dev/null && echo 'Nginx restarted' || echo 'Nginx not found'
-                            systemctl restart apache2 2>/dev/null && echo 'Apache restarted' || echo 'Apache not found'
-                            
-                            echo 'Deployment completed!'
-                            echo 'Files in deploy directory:'
-                            ls -la ${DEPLOY_PATH}
-                        "
-                    '''
-                }
+                echo "🐳 Building Docker image..."
+                sh "docker build -t ${DOCKER_IMAGE} ."
             }
         }
-        
-        stage('Health Check') {
+
+        stage('Stop Old Container') {
             steps {
-                echo '🏥 Running health check...'
-                script {
-                    sleep(time: 5, unit: 'SECONDS')
-                    
-                    sh '''
-                        echo "Checking website accessibility..."
-                        if curl -f -s -m 10 http://${VPS_HOST} > /dev/null; then
-                            echo "✅ Website is accessible"
-                        else
-                            echo "⚠️ Website accessibility check failed"
-                            echo "Checking VPS services..."
-                            ssh -o StrictHostKeyChecking=no -p ${VPS_PORT} ${VPS_USER}@${VPS_HOST} "
-                                echo 'Service Status:'
-                                systemctl status nginx --no-pager -l || echo 'Nginx not running'
-                                systemctl status apache2 --no-pager -l || echo 'Apache not running'
-                            "
-                        fi
-                    '''
-                }
+                echo "🚫 Stopping and removing old container..."
+                sh "docker rm -f ${DOCKER_CONTAINER} || true"
+            }
+        }
+
+        stage('Deploy') {
+            steps {
+                echo "🚀 Deploying to Docker container..."
+                sh "docker run -d --name ${DOCKER_CONTAINER} -p 4000:4000 ${DOCKER_IMAGE}"
             }
         }
     }
-    
+
     post {
-        always {
-            echo '🧹 Cleaning up...'
-            sh 'rm -rf deploy || true'
-        }
-        
         success {
-            echo '''
-            ✅ DEPLOYMENT SUCCESSFUL!
-            
-            🎉 Your application has been deployed to VPS!
-            🌐 Website: http://${VPS_HOST}
-            📊 Build: ${BUILD_NUMBER}
-            '''
+            echo "🎉 Deployment successful!"
         }
-        
         failure {
-            echo '''
-            ❌ DEPLOYMENT FAILED!
-            
-            Please check the logs above for error details.
-            '''
+            echo "❌ Deployment failed!"
         }
     }
 }

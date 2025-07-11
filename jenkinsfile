@@ -1,54 +1,273 @@
 pipeline {
     agent any
-
+    
+    // Environment variables
     environment {
-        IMAGE_NAME = "web-statis:v1"
-        CONTAINER_NAME = "web-statis"
-        PORT = "7000"
+        // VPS Configuration
+        VPS_HOST = '192.168.1.100'        // Ganti dengan IP VPS Anda
+        VPS_USER = 'root'                 // Ganti dengan user VPS Anda
+        VPS_PORT = '22'                   // Port SSH VPS
+        DEPLOY_PATH = '/var/www/html'     // Path deploy di VPS
+        
+        // Project Configuration
+        PROJECT_NAME = 'my-web-app'
+        BUILD_PATH = './dist'             // Path hasil build
+        
+        // Credentials ID (akan dibuat di Jenkins)
+        SSH_CREDENTIALS = 'vps-ssh-key'
     }
-
+    
+    // Build triggers
+    triggers {
+        // Poll SCM every 5 minutes for changes
+        pollSCM('H/5 * * * *')
+    }
+    
     stages {
         stage('Checkout') {
             steps {
-                echo '📥 Checkout source code...'
+                echo '🔄 Checking out source code...'
                 checkout scm
+                
+                // Display build information
+                script {
+                    echo "Build Number: ${env.BUILD_NUMBER}"
+                    echo "Build ID: ${env.BUILD_ID}"
+                    echo "Job Name: ${env.JOB_NAME}"
+                    echo "Workspace: ${env.WORKSPACE}"
+                }
             }
         }
-
-        stage('Build Docker Image') {
+        
+        stage('Install Dependencies') {
             steps {
-                echo "🐳 Building Docker image: ${IMAGE_NAME}"
-                sh "docker build -t ${IMAGE_NAME} ."
+                echo '📦 Installing dependencies...'
+                script {
+                    // Untuk Node.js project
+                    if (fileExists('package.json')) {
+                        sh '''
+                            npm install
+                            npm audit fix --force || true
+                        '''
+                    }
+                    
+                    // Untuk PHP Composer
+                    if (fileExists('composer.json')) {
+                        sh '''
+                            composer install --no-dev --optimize-autoloader
+                        '''
+                    }
+                    
+                    // Untuk Python
+                    if (fileExists('requirements.txt')) {
+                        sh '''
+                            pip install -r requirements.txt
+                        '''
+                    }
+                }
             }
         }
-
-        stage('Stop Old Container') {
+        
+        stage('Build') {
             steps {
-                echo "🧹 Stopping and removing old container (if any)..."
-                sh "docker stop ${CONTAINER_NAME} || true"
-                sh "docker rm ${CONTAINER_NAME} || true"
+                echo '🔨 Building application...'
+                script {
+                    // Build untuk Node.js
+                    if (fileExists('package.json')) {
+                        sh '''
+                            npm run build
+                        '''
+                    }
+                    
+                    // Build untuk PHP (jika ada build script)
+                    if (fileExists('build.sh')) {
+                        sh '''
+                            chmod +x build.sh
+                            ./build.sh
+                        '''
+                    }
+                    
+                    // Verifikasi build hasil
+                    sh '''
+                        if [ -d "${BUILD_PATH}" ]; then
+                            echo "✅ Build directory exists"
+                            ls -la ${BUILD_PATH}
+                        else
+                            echo "❌ Build directory not found"
+                            echo "Available directories:"
+                            ls -la
+                        fi
+                    '''
+                }
             }
         }
-
-        stage('Run New Container') {
+        
+        stage('Test') {
             steps {
-                echo "🚀 Running new container on port ${PORT}"
-                sh """
-                    docker run -d \
-                        --name ${CONTAINER_NAME} \
-                        -p ${PORT}:80 \
-                        ${IMAGE_NAME}
-                """
+                echo '🧪 Running tests...'
+                script {
+                    // Node.js tests
+                    if (fileExists('package.json')) {
+                        sh '''
+                            npm test || echo "No tests found"
+                        '''
+                    }
+                    
+                    // PHP tests
+                    if (fileExists('phpunit.xml')) {
+                        sh '''
+                            ./vendor/bin/phpunit || echo "PHPUnit tests failed"
+                        '''
+                    }
+                }
+            }
+        }
+        
+        stage('Prepare Deploy') {
+            steps {
+                echo '📋 Preparing deployment...'
+                script {
+                    // Create deployment package
+                    sh '''
+                        # Create temp directory for deployment
+                        mkdir -p deploy-temp
+                        
+                        # Copy build files
+                        if [ -d "${BUILD_PATH}" ]; then
+                            cp -r ${BUILD_PATH}/* deploy-temp/
+                        else
+                            echo "No build directory found, copying all files..."
+                            cp -r * deploy-temp/ || true
+                            # Remove unnecessary files
+                            rm -rf deploy-temp/.git
+                            rm -rf deploy-temp/node_modules
+                            rm -rf deploy-temp/deploy-temp
+                        fi
+                        
+                        # Create deployment info
+                        echo "Deployment Info:" > deploy-temp/deployment-info.txt
+                        echo "Build Number: ${BUILD_NUMBER}" >> deploy-temp/deployment-info.txt
+                        echo "Build Date: $(date)" >> deploy-temp/deployment-info.txt
+                        echo "Git Commit: $(git rev-parse HEAD)" >> deploy-temp/deployment-info.txt
+                        
+                        # List files to be deployed
+                        echo "Files to be deployed:"
+                        ls -la deploy-temp/
+                    '''
+                }
+            }
+        }
+        
+        stage('Deploy to VPS') {
+            steps {
+                echo '🚀 Deploying to VPS...'
+                script {
+                    // Using SSH Agent plugin
+                    sshagent(credentials: [env.SSH_CREDENTIALS]) {
+                        sh '''
+                            # Test SSH connection
+                            ssh -o StrictHostKeyChecking=no -p ${VPS_PORT} ${VPS_USER}@${VPS_HOST} "echo 'SSH connection successful'"
+                            
+                            # Create backup of current deployment
+                            ssh -o StrictHostKeyChecking=no -p ${VPS_PORT} ${VPS_USER}@${VPS_HOST} "
+                                if [ -d '${DEPLOY_PATH}' ]; then
+                                    echo '📦 Creating backup...'
+                                    cp -r ${DEPLOY_PATH} ${DEPLOY_PATH}.backup.$(date +%Y%m%d_%H%M%S)
+                                    
+                                    # Keep only last 3 backups
+                                    cd $(dirname ${DEPLOY_PATH})
+                                    ls -t ${PROJECT_NAME}.backup.* 2>/dev/null | tail -n +4 | xargs rm -rf
+                                fi
+                            "
+                            
+                            # Upload files to VPS
+                            echo '📤 Uploading files...'
+                            scp -o StrictHostKeyChecking=no -P ${VPS_PORT} -r deploy-temp/* ${VPS_USER}@${VPS_HOST}:${DEPLOY_PATH}/
+                            
+                            # Set proper permissions and restart services
+                            ssh -o StrictHostKeyChecking=no -p ${VPS_PORT} ${VPS_USER}@${VPS_HOST} "
+                                echo '🔧 Setting permissions...'
+                                chown -R www-data:www-data ${DEPLOY_PATH}
+                                chmod -R 755 ${DEPLOY_PATH}
+                                
+                                echo '🔄 Restarting services...'
+                                systemctl restart nginx || echo 'Nginx restart failed'
+                                systemctl restart apache2 || echo 'Apache restart failed'
+                                systemctl restart php7.4-fpm || echo 'PHP-FPM restart failed'
+                                
+                                echo '✅ Deployment completed successfully!'
+                                echo 'Deployment time: $(date)'
+                            "
+                        '''
+                    }
+                }
+            }
+        }
+        
+        stage('Health Check') {
+            steps {
+                echo '🏥 Running health check...'
+                script {
+                    // Wait a bit for services to start
+                    sleep(time: 10, unit: 'SECONDS')
+                    
+                    // Check if website is accessible
+                    sh '''
+                        # Try to access the website
+                        if curl -f -s http://${VPS_HOST} > /dev/null; then
+                            echo "✅ Website is accessible"
+                        else
+                            echo "❌ Website is not accessible"
+                            # Check VPS services
+                            ssh -o StrictHostKeyChecking=no -p ${VPS_PORT} ${VPS_USER}@${VPS_HOST} "
+                                echo 'Checking services status:'
+                                systemctl status nginx --no-pager || true
+                                systemctl status apache2 --no-pager || true
+                            "
+                        fi
+                    '''
+                }
             }
         }
     }
-
+    
     post {
-        success {
-            echo "🎉 Deployment success! Access the site at http://<IP-VPS>:${PORT}"
+        always {
+            echo '🧹 Cleaning up...'
+            // Clean up deployment temp directory
+            sh 'rm -rf deploy-temp'
+            
+            // Archive deployment info
+            archiveArtifacts artifacts: '**/deployment-info.txt', fingerprint: true, allowEmptyArchive: true
         }
+        
+        success {
+            echo '''
+            ✅ DEPLOYMENT SUCCESSFUL! 
+            
+            🎉 Your application has been successfully deployed to VPS!
+            🌐 Website: http://${VPS_HOST}
+            📊 Build Number: ${BUILD_NUMBER}
+            ⏰ Deployment Time: $(date)
+            '''
+            
+            // Send notification (optional)
+            // slackSend(channel: '#deployments', message: "✅ ${env.JOB_NAME} - Build ${env.BUILD_NUMBER} deployed successfully!")
+        }
+        
         failure {
-            echo "❌ Deployment failed. Check logs for details."
+            echo '''
+            ❌ DEPLOYMENT FAILED!
+            
+            Please check the logs above for error details.
+            '''
+            
+            // Send notification (optional)
+            // slackSend(channel: '#deployments', message: "❌ ${env.JOB_NAME} - Build ${env.BUILD_NUMBER} deployment failed!")
+        }
+        
+        unstable {
+            echo '⚠️ Build completed with warnings'
         }
     }
 }

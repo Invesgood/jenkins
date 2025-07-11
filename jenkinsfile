@@ -163,7 +163,7 @@ pipeline {
                 echo '🚀 Deploying to VPS...'
                 script {
                     // Using SSH Agent plugin
-                    sshagent(credentials: [env.SSH_CREDENTIALS]) {
+                    sshagent(credentials: [invesgood]) {
                         sh '''
                             # Test SSH connection
                             ssh -o StrictHostKeyChecking=no -p ${VPS_PORT} ${VPS_USER}@${VPS_HOST} "echo 'SSH connection successful'"

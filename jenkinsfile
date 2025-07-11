@@ -2,7 +2,9 @@ pipeline {
     agent any
 
     environment {
-        DEPLOY_PATH = "/var/www/html"
+        IMAGE_NAME = "web-statis:v1"
+        CONTAINER_NAME = "web-statis"
+        PORT = "7000"
     }
 
     stages {
@@ -13,37 +15,40 @@ pipeline {
             }
         }
 
-        stage('Build (optional)') {
+        stage('Build Docker Image') {
             steps {
-                echo '⚙️ Build step (skip if not needed)...'
-                // Misalnya: npm run build, atau bisa dikosongkan
-                // sh 'npm install && npm run build'
+                echo "🐳 Building Docker image: ${IMAGE_NAME}"
+                sh "docker build -t ${IMAGE_NAME} ."
             }
         }
 
-        stage('Deploy') {
+        stage('Stop Old Container') {
             steps {
-                echo "🚀 Deploying to local server folder: ${DEPLOY_PATH}"
+                echo "🧹 Stopping and removing old container (if any)..."
+                sh "docker stop ${CONTAINER_NAME} || true"
+                sh "docker rm ${CONTAINER_NAME} || true"
+            }
+        }
+
+        stage('Run New Container') {
+            steps {
+                echo "🚀 Running new container on port ${PORT}"
                 sh """
-                    rsync -avz --delete ./ ${DEPLOY_PATH}/
+                    docker run -d \
+                        --name ${CONTAINER_NAME} \
+                        -p ${PORT}:80 \
+                        ${IMAGE_NAME}
                 """
-            }
-        }
-
-        stage('Post-deploy check') {
-            steps {
-                echo '✅ Deployment complete!'
-                sh "ls -l ${DEPLOY_PATH}"
             }
         }
     }
 
     post {
         success {
-            echo '🎉 Pipeline success!'
+            echo "🎉 Deployment success! Access the site at http://<IP-VPS>:${PORT}"
         }
         failure {
-            echo '❌ Pipeline failed. Check logs.'
+            echo "❌ Deployment failed. Check logs for details."
         }
     }
 }

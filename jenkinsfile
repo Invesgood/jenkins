@@ -4,7 +4,7 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                git 'git@github.com:Invesgood/jenkins.git' // Ganti sesuai repo kamu
+                git 'https://github.com/Invesgood/jenkins.git' // Ganti sesuai repo kamu
             }
         }
 

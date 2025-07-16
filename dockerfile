@@ -1,20 +1,10 @@
-# Gunakan image base Node.js
-FROM node:14
+# Gunakan base image nginx
+FROM nginx:alpine
 
-# Set working directory
-WORKDIR /app
+# Hapus default index nginx
+RUN rm -rf /usr/share/nginx/html/*
 
-# Copy file package.json dan package-lock.json
-COPY package*.json ./
+# Copy semua file web ke folder html nginx
+COPY . /usr/share/nginx/html
 
-# Install dependencies
-RUN npm install
-
-# Copy semua file aplikasi
-COPY . .
-
-# Expose port 4000
-EXPOSE 4000
-
-# Jalankan aplikasi
-CMD ["node", "index.js"]
+# Container akan otomatis menjalankan nginx

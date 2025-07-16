@@ -1,51 +1,29 @@
 pipeline {
     agent any
 
-    environment {
-        DOCKER_IMAGE = "my-app-image" // Nama Docker image
-        DOCKER_CONTAINER = "my-app-container" // Nama Docker container
-    }
-
     stages {
-        // Tahap 1: Checkout repository
         stage('Checkout') {
             steps {
-                echo "🔄 Checking out source code..."
-                checkout scm
+                git 'https://github.com/kamu/nama-repo.git' // Ganti sesuai repo kamu
             }
         }
 
-        // Tahap 2: Build Docker image
         stage('Build Docker Image') {
             steps {
-                echo "🐳 Building Docker image..."
-                sh "docker build -t ${DOCKER_IMAGE} ." // Build image dari Dockerfile
+                script {
+                    dockerImage = docker.build("my-static-web:${env.BUILD_NUMBER}")
+                }
             }
         }
 
-        // Tahap 3: Hentikan dan hapus container lama (jika ada)
-        stage('Stop Old Container') {
+        stage('Run Docker Container') {
             steps {
-                echo "🚫 Stopping and removing old container..."
-                sh "docker rm -f ${DOCKER_CONTAINER} || true" // Hapus container lama
+                script {
+                    sh 'docker stop my-static-web || true'
+                    sh 'docker rm my-static-web || true'
+                    sh "docker run -d -p 8080:80 --name my-static-web my-static-web:${env.BUILD_NUMBER}"
+                }
             }
-        }
-
-        // Tahap 4: Deploy ke Docker container dengan port 4000
-        stage('Deploy') {
-            steps {
-                echo "🚀 Deploying to Docker container..."
-                sh "docker run -d --name ${DOCKER_CONTAINER} -p 4000:4000 ${DOCKER_IMAGE}" // Jalankan container dengan port 4000
-            }
-        }
-    }
-
-    post {
-        success {
-            echo "🎉 Deployment successful!"
-        }
-        failure {
-            echo "❌ Deployment failed!"
         }
     }
 }

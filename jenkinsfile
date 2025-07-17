@@ -4,7 +4,7 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                git 'https://github.com/Invesgood/jenkins.git' // Ganti sesuai repo kamu
+                git branch: 'main', url: 'git@github.com:Invesgood/jenkins.git'
             }
         }
 
@@ -16,14 +16,41 @@ pipeline {
             }
         }
 
-        stage('Run Docker Container') {
+        stage('Stop Previous Container') {
             steps {
                 script {
                     sh 'docker stop my-static-web || true'
                     sh 'docker rm my-static-web || true'
-                    sh "docker run -d -p 8080:80 --name my-static-web my-static-web:${env.BUILD_NUMBER}"
                 }
             }
+        }
+
+        stage('Run Docker Container') {
+            steps {
+                script {
+                    sh "docker run -d -p 8088:80 --name my-static-web my-static-web:${env.BUILD_NUMBER}"
+                }
+            }
+        }
+
+        stage('Clean Up Old Images') {
+            steps {
+                script {
+                    sh 'docker image prune -f'
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            echo 'Pipeline completed!'
+        }
+        success {
+            echo 'Deployment successful! Web app is running on port 8080'
+        }
+        failure {
+            echo 'Pipeline failed!'
         }
     }
 }

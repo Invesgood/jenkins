@@ -28,7 +28,7 @@ pipeline {
         stage('Run Docker Container') {
             steps {
                 script {
-                    sh "docker run -d -p 9999:80 --name my-static-web my-static-web:${env.BUILD_NUMBER}"
+                    sh "docker run -d -p 9999:443 --name my-static-web my-static-web:${env.BUILD_NUMBER}"
                 }
             }
         }
